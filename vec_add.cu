@@ -10,7 +10,7 @@ void vecAddKernel(float * a, float * b, float * c, int size)
 
 }
 
-extern "C" void vecAddGPU(float * h_a, float * h_b, float * h_c, int size)
+void vecAddGPU(float * h_a, float * h_b, float * h_c, int size)
 {
   int n = size * sizeof(float);
 
@@ -24,7 +24,7 @@ extern "C" void vecAddGPU(float * h_a, float * h_b, float * h_c, int size)
 
   vecAddKernel<<<ceil(n/256.0), 256>>>(d_a, d_b, d_c, size);
 
-  cudaMemcpy(h_c, d_b, n,  cudaMemcpyDeviceToHost);
+  cudaMemcpy(h_c, d_c, n,  cudaMemcpyDeviceToHost);
 
   cudaFree(d_a); cudaFree(d_b); cudaFree(d_c);
 }
@@ -74,6 +74,7 @@ int main(void)
 //  printVecs(h_a, h_b, h_c, n);
 
   vecAddGPU(h_a, h_b, h_c, n);
+  printVecs(h_a, h_b, h_c, n);
 
   return 0;
 }
