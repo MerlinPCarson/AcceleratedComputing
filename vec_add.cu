@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
 #include <cuda.h>
 
 struct CudaBlockInfo{
@@ -98,7 +100,7 @@ int getVectorLength(){
   int len;
 
   do {
-    printf("Enter length of vectors to be multiplied: ");
+    printf("\nEnter length of vectors to be multiplied: ");
     scanf("%d",&len);
   } while(len < 1); 
 
@@ -116,7 +118,7 @@ void getBlockInfo(CudaBlockInfo * blockInfo, int len){
     scanf("%d", &(blockInfo->blocksPerGrid));
     checkVal = blockInfo->threadsPerBlock * blockInfo->blocksPerGrid;
 		if (checkVal != len){
-      printf("Error, try again");
+      printf("\nError, try again\n");
     }
   } while(checkVal != len);
 
@@ -136,39 +138,75 @@ int validateBlockInfoForDevice(CudaBlockInfo  * blockInfo, int deviceNum){
     return 1;
 }
 
+void printUsage(){
+  printf("Usage -- \n");
+  printf("  VectorMultiply <lenght of vectors> <number of threads per block> <number of blocks per grid>\n");
+}
 
-int main(void)
+int loadArguments(int argc, char * argv[], CudaBlockInfo * blockInfo, int * vecLength){
+
+  if(argc != 4){
+    printf("\nIncorrect number of arguments!\n\n");
+  }
+  else{
+    if (isdigit(argv[1][0])){
+      *vecLength = atoi(argv[1]);
+      printf("vec length %d\n", *vecLength);
+    }
+  
+    if (isdigit(argv[2][0])){
+      blockInfo->threadsPerBlock = atoi(argv[2]);
+      printf("threads per block %d\n", blockInfo->threadsPerBlock);
+    }
+  
+    if (isdigit(argv[3][0])){
+      blockInfo->blocksPerGrid = atoi(argv[3]);
+      printf("blocks per gird %d\n", blockInfo->blocksPerGrid);
+    }
+    return 1;
+  }
+
+  printUsage();
+  return 0;
+}
+
+int main(int argc, char * argv[])
 {
+  int * vecLength = (int *)malloc(sizeof(int));
+  CudaBlockInfo * blockInfo = (CudaBlockInfo *)malloc(sizeof(CudaBlockInfo));
+
+  // check number of and types of command line arguments
+  if(!loadArguments(argc, argv, blockInfo, vecLength)){
+    return 1;
+  }
+
   // identify cuda devices
   if(!cudaDeviceProperties()){
     return 1;
   }
 
-  //int len = 1024;
-  int len = getVectorLength();
 
-  CudaBlockInfo * blockInfo = (CudaBlockInfo *)malloc(sizeof(CudaBlockInfo));
-  getBlockInfo(blockInfo, len);
+//  getBlockInfo(blockInfo, len);
   //printf("%d, %d",blockInfo->threadsPerBlock, blockInfo->blocksPerGrid);
 
   if(!validateBlockInfoForDevice(blockInfo, 0)){
     return 1;
   }
 
-  float * h_a = (float*)malloc(len * sizeof(float));
-  float * h_b = (float*)malloc(len * sizeof(float));
-  float * h_c = (float*)malloc(len * sizeof(float));
+  float * h_a = (float*)malloc(*vecLength * sizeof(float));
+  float * h_b = (float*)malloc(*vecLength * sizeof(float));
+  float * h_c = (float*)malloc(*vecLength * sizeof(float));
 
-  fillVecs(h_a, h_b, len);
+  fillVecs(h_a, h_b, *vecLength);
 //  printVecs(h_a, h_b, h_c, n);
 
-  printf("Vector addition with %d elements\n", len);
+  printf("Vector addition with %d elements\n", *vecLength);
 
-//  vecAddCPU(h_a, h_b, h_c, len);
-//  printVecs(h_a, h_b, h_c, len);
+//  vecAddCPU(h_a, h_b, h_c, *vecLength);
+//  printVecs(h_a, h_b, h_c, *vecLength);
 
-  vecAddGPU(h_a, h_b, h_c, len, blockInfo);
-  printVecs(h_a, h_b, h_c, len);
+  vecAddGPU(h_a, h_b, h_c, *vecLength, blockInfo);
+  printVecs(h_a, h_b, h_c, *vecLength);
 
   return 0;
 }
