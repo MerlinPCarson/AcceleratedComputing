@@ -17,7 +17,11 @@ void vecAddKernel(float * a, float * b, float * c, int size)
 
 }
 
-void vecAddGPU(float * h_a, float * h_b, float * h_c, int len, CudaBlockInfo * blockInfo){
+float vecAddGPU(float * h_a, float * h_b, float * h_c, int len, CudaBlockInfo * blockInfo){
+
+	cudaEvent_t start, stop;
+	float elapsedTime;
+
   int size = len * sizeof(float);
 
   float * d_a, * d_b, * d_c;
@@ -28,18 +32,47 @@ void vecAddGPU(float * h_a, float * h_b, float * h_c, int len, CudaBlockInfo * b
   cudaMemcpy(d_b, h_b, size,  cudaMemcpyHostToDevice);
   cudaMalloc((void**)&d_c, size);
 
-  vecAddKernel<<<blockInfo->blocksPerGrid, blockInfo->threadsPerBlock>>>(d_a, d_b, d_c, len);
+	cudaEventCreate(&start);    
+	cudaEventCreate(&stop);
+	cudaEventRecord(start, 0);
 
+  // peform operation on GPU
+  vecAddKernel<<<blockInfo->blocksPerGrid, blockInfo->threadsPerBlock>>>(d_a, d_b, d_c, len);
+  // copy results back to CPU
   cudaMemcpy(h_c, d_c, size,  cudaMemcpyDeviceToHost);
 
+	cudaEventRecord(stop, 0);     
+	cudaEventSynchronize(stop);
+	cudaEventElapsedTime(&elapsedTime, start, stop);
+
   cudaFree(d_a); cudaFree(d_b); cudaFree(d_c);
+
+	cudaEventDestroy(start);
+	cudaEventDestroy(stop);
+
+  return elapsedTime;
 }
 
-void vecAddCPU(float * a, float * b, float * c, int size){
+float vecAddCPU(float * a, float * b, float * c, int size){
+	cudaEvent_t start, stop;
+	float elapsedTime;
+
+	cudaEventCreate(&start);    
+	cudaEventCreate(&stop);
+	cudaEventRecord(start, 0);
+
   for(int i=0; i<size; ++i){
     c[i] = a[i] + b[i];
   }
 
+	cudaEventRecord(stop, 0);     
+	cudaEventSynchronize(stop);
+	cudaEventElapsedTime(&elapsedTime, start, stop);
+
+	cudaEventDestroy(start);
+	cudaEventDestroy(stop);
+
+  return elapsedTime;
 }
 
 void fillVecs(float * a, float * b, int size){
@@ -154,23 +187,28 @@ int main(int argc, char * argv[])
     return 1;
   }
 
+  // vector variables
   float * a = (float*)malloc(*vecLength * sizeof(float));
   float * b = (float*)malloc(*vecLength * sizeof(float));
   float * c = (float*)malloc(*vecLength * sizeof(float));
+  // process time variable
+  float procTime;
 
   fillVecs(a, b, *vecLength);
 //  printVecs(a, b, c, n);
 
   printf("\nVector multiplication using CPU with %d elements:\n", *vecLength);
 
-  vecAddCPU(a, b, c, *vecLength);
+  procTime = vecAddCPU(a, b, c, *vecLength);
   printVecs(a, b, c, *vecLength);
+	printf("Time to calculate results on CPU: %f ms.\n", procTime);
 
   printf("\nVector multiplication using GPU witih %d elements, %d threads per block and %d blocks per grid:\n", 
          *vecLength, blockInfo->threadsPerBlock, blockInfo->blocksPerGrid);
 
-  vecAddGPU(a, b, c, *vecLength, blockInfo);
+  procTime = vecAddGPU(a, b, c, *vecLength, blockInfo);
   printVecs(a, b, c, *vecLength);
+	printf("Time to calculate results on GPU: %f ms.\n", procTime);
 
   return 0;
 }
