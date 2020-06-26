@@ -3,6 +3,8 @@
 #include <ctype.h>
 #include <cuda.h>
 
+#define GPUNUM (0)
+
 struct CudaBlockInfo{
   int threadsPerBlock;
   int blocksPerGrid;
@@ -26,12 +28,14 @@ float vecAddGPU(float * h_a, float * h_b, float * h_c, int len, CudaBlockInfo * 
 
   float * d_a, * d_b, * d_c;
 
+  // alocate memory and move vectors to GPU
   cudaMalloc((void**)&d_a, size);
   cudaMemcpy(d_a, h_a, size,  cudaMemcpyHostToDevice);
   cudaMalloc((void**)&d_b, size);
   cudaMemcpy(d_b, h_b, size,  cudaMemcpyHostToDevice);
   cudaMalloc((void**)&d_c, size);
 
+  // start timings
 	cudaEventCreate(&start);    
 	cudaEventCreate(&stop);
 	cudaEventRecord(start, 0);
@@ -41,10 +45,12 @@ float vecAddGPU(float * h_a, float * h_b, float * h_c, int len, CudaBlockInfo * 
   // copy results back to CPU
   cudaMemcpy(h_c, d_c, size,  cudaMemcpyDeviceToHost);
 
+  // end timings
 	cudaEventRecord(stop, 0);     
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&elapsedTime, start, stop);
 
+  // free GPU memory
   cudaFree(d_a); cudaFree(d_b); cudaFree(d_c);
 
 	cudaEventDestroy(start);
@@ -62,7 +68,7 @@ float vecAddCPU(float * a, float * b, float * c, int size){
 	cudaEventRecord(start, 0);
 
   for(int i=0; i<size; ++i){
-    c[i] = a[i] + b[i];
+    c[i] = a[i] * b[i];
   }
 
 	cudaEventRecord(stop, 0);     
@@ -120,7 +126,7 @@ int cudaDeviceProperties(){
   return 1;
 }
 
-int validateBlockInfoForDevice(CudaBlockInfo  * blockInfo, int deviceNum){
+int validateBlockInfoForDevice(CudaBlockInfo  * blockInfo, int vecLen, int deviceNum){
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, deviceNum);
 
@@ -130,13 +136,26 @@ int validateBlockInfoForDevice(CudaBlockInfo  * blockInfo, int deviceNum){
       printf("  Requested threads per block: %d\n", blockInfo->threadsPerBlock);
       return 0;
     }
+    if((blockInfo->threadsPerBlock*blockInfo->blocksPerGrid) != vecLen){
+      printf("Number of threads per block x Number of blocks per grid != Vector Length\n");
+      return 0;
+    }
 
     return 1;
 }
 
 void printUsage(){
-  printf("Usage -- \n");
-  printf("  VectorMultiply <lenght of vectors> <number of threads per block> <number of blocks per grid>\n");
+  printf("\nUsage -- \n");
+  printf("  VectorMultiply <length of vectors> <number of threads per block> <number of blocks per grid>\n");
+}
+
+bool isNumeric(char * str){
+  int len = strlen(str);
+  for(int i=0; i<len; ++i){
+    if(!isdigit(str[i]))
+        return false;
+  }
+  return true;
 }
 
 int loadArguments(int argc, char * argv[], CudaBlockInfo * blockInfo, int * vecLength){
@@ -144,28 +163,19 @@ int loadArguments(int argc, char * argv[], CudaBlockInfo * blockInfo, int * vecL
   if(argc != 4){
     printf("\nIncorrect number of arguments!\n\n");
   }
+  else if (!isNumeric(argv[1]) || !isNumeric(argv[2]) || !isNumeric(argv[3])){
+    printf("\nNon-numeric value found in command line arguments\n\n");
+  }
   else{
-    if (isdigit(argv[1][0])){
-      *vecLength = atoi(argv[1]);
-      //printf("vec length %d\n", *vecLength);
-    }
-  
-    if (isdigit(argv[2][0])){
-      blockInfo->threadsPerBlock = atoi(argv[2]);
-      //printf("threads per block %d\n", blockInfo->threadsPerBlock);
-    }
-  
-    if (isdigit(argv[3][0])){
-      blockInfo->blocksPerGrid = atoi(argv[3]);
-      //printf("blocks per gird %d\n", blockInfo->blocksPerGrid);
-    }
+    // check if all arguments are integer values
+    *vecLength = atoi(argv[1]);
+    blockInfo->threadsPerBlock = atoi(argv[2]);
+    blockInfo->blocksPerGrid = atoi(argv[3]);
 
     // validate block and thread values from arguments
-    if(!validateBlockInfoForDevice(blockInfo, 0)){
-      return 0;
+    if(validateBlockInfoForDevice(blockInfo, *vecLength, GPUNUM)){
+      return 1;
     }
-
-    return 1;
   }
 
   printUsage();
@@ -174,6 +184,7 @@ int loadArguments(int argc, char * argv[], CudaBlockInfo * blockInfo, int * vecL
 
 int main(int argc, char * argv[])
 {
+  // variables for command line arguments
   int * vecLength = (int *)malloc(sizeof(int));
   CudaBlockInfo * blockInfo = (CudaBlockInfo *)malloc(sizeof(CudaBlockInfo));
 
@@ -191,24 +202,27 @@ int main(int argc, char * argv[])
   float * a = (float*)malloc(*vecLength * sizeof(float));
   float * b = (float*)malloc(*vecLength * sizeof(float));
   float * c = (float*)malloc(*vecLength * sizeof(float));
-  // process time variable
-  float procTime;
 
+  // fill vectors a and b with values
   fillVecs(a, b, *vecLength);
-//  printVecs(a, b, c, n);
 
   printf("\nVector multiplication using CPU with %d elements:\n", *vecLength);
 
-  procTime = vecAddCPU(a, b, c, *vecLength);
+  float procTimeCPU = vecAddCPU(a, b, c, *vecLength);
   printVecs(a, b, c, *vecLength);
-	printf("Time to calculate results on CPU: %f ms.\n", procTime);
 
-  printf("\nVector multiplication using GPU witih %d elements, %d threads per block and %d blocks per grid:\n", 
+  printf("\nVector multiplication using GPU with %d elements, %d threads per block and %d blocks per grid:\n", 
          *vecLength, blockInfo->threadsPerBlock, blockInfo->blocksPerGrid);
 
-  procTime = vecAddGPU(a, b, c, *vecLength, blockInfo);
+  float procTimeGPU = vecAddGPU(a, b, c, *vecLength, blockInfo);
   printVecs(a, b, c, *vecLength);
-	printf("Time to calculate results on GPU: %f ms.\n", procTime);
+
+  // print process times
+	printf("\nTime to calculate results on CPU: %f ms.\n", procTimeCPU);
+	printf("Time to calculate results on GPU: %f ms.\n", procTimeGPU);
+
+  // free memory
+  free(a); free(b); free(c);
 
   return 0;
 }
