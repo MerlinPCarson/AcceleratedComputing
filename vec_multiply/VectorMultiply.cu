@@ -109,14 +109,18 @@ int cudaDeviceProperties(){
     return 0;
   }
 
+  float bytesInGiB = 1 << 30;
+
   // print stats for each cuda device found
   for (int i = 0; i < nDevices; ++i){
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, i);
     printf("Device Number: %d\n", i);
-    printf("  Device name: %s\n", prop.name);
+    printf("  Device Name: %s\n", prop.name);
     printf("  Compute Capability: %d.%d\n", prop.major, prop.minor);
-    printf("  Max threads per block: %d\n", prop.maxThreadsPerBlock);
+    printf("  Total Global Memory (GiB): %lf\n", prop.totalGlobalMem/bytesInGiB);
+    printf("  Max Threads per Block: %d\n", prop.maxThreadsPerBlock);
+    printf("  Maximum x Dimension of Grid: %d\n", prop.maxGridSize[0]);
     printf("  Memory Clock Rate (KHz): %d\n", prop.memoryClockRate);
     printf("  Memory Bus Width (bits): %d\n", prop.memoryBusWidth);
     printf("  Peak Memory Bandwith (GB/s): %f\n\n",
@@ -130,18 +134,30 @@ int validateBlockInfoForDevice(CudaBlockInfo  * blockInfo, int vecLen, int devic
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, deviceNum);
 
-    if(prop.maxThreadsPerBlock < blockInfo->threadsPerBlock){
+    if((blockInfo->threadsPerBlock*blockInfo->blocksPerGrid) != vecLen){
+      printf("Number of threads per block x Number of blocks per grid != Vector Length\n");
+    }
+    else if(prop.maxThreadsPerBlock < blockInfo->threadsPerBlock){
       printf("\nDevice %s is unable to process request!\n", prop.name);
       printf("  Max threads per block: %d\n", prop.maxThreadsPerBlock);
       printf("  Requested threads per block: %d\n", blockInfo->threadsPerBlock);
-      return 0;
     }
-    if((blockInfo->threadsPerBlock*blockInfo->blocksPerGrid) != vecLen){
-      printf("Number of threads per block x Number of blocks per grid != Vector Length\n");
-      return 0;
+    else if(prop.maxGridSize[0] < blockInfo->blocksPerGrid){
+      printf("\nDevice %s is unable to process request!\n", prop.name);
+      printf("  Max blocks per grid: %d\n", prop.maxGridSize[0]);
+      printf("  Requested blocks per grid: %d\n", blockInfo->blocksPerGrid);
+    }
+    else if(prop.totalGlobalMem < 3*(vecLen*sizeof(float))){
+      printf("\nDevice %s is unable to process request!\n", prop.name);
+      printf("  Total global memory is: %lu\n", prop.totalGlobalMem);
+      printf("  Bytes needed for vectors: %lu\n", 3*(vecLen*sizeof(float)));
+    }
+    else{
+      return 1;
     }
 
-    return 1;
+    // validation failed
+    return 0;
 }
 
 void printUsage(){
