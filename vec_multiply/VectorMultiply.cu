@@ -10,6 +10,14 @@ struct CudaBlockInfo{
   int blocksPerGrid;
 };
 
+// Function for checking for cuda errors
+void cudaCheckError(cudaError_t err) {
+  if(err!=cudaSuccess) {
+    printf("Cuda failure %s in %s line %d\n", cudaGetErrorString(err), __FILE__, __LINE__);
+    exit(0);
+ }
+}
+
 __global__
 void vecAddKernel(float * a, float * b, float * c, int size)
 {
@@ -29,11 +37,11 @@ float vecAddGPU(float * h_a, float * h_b, float * h_c, int len, CudaBlockInfo * 
   float * d_a, * d_b, * d_c;
 
   // alocate memory and move vectors to GPU
-  cudaMalloc((void**)&d_a, size);
+  cudaCheckError(cudaMalloc((void**)&d_a, size));
   cudaMemcpy(d_a, h_a, size,  cudaMemcpyHostToDevice);
-  cudaMalloc((void**)&d_b, size);
+  cudaCheckError(cudaMalloc((void**)&d_b, size));
   cudaMemcpy(d_b, h_b, size,  cudaMemcpyHostToDevice);
-  cudaMalloc((void**)&d_c, size);
+  cudaCheckError(cudaMalloc((void**)&d_c, size));
 
   // start timings
 	cudaEventCreate(&start);    
