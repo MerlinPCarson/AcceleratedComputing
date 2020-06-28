@@ -19,7 +19,7 @@ void cudaCheckError(cudaError_t err) {
 }
 
 __global__
-void vecAddKernel(float * a, float * b, float * c, int size)
+void vecMultKernel(float * a, float * b, float * c, int size)
 {
   int i = blockDim.x*blockIdx.x+threadIdx.x;
 
@@ -27,20 +27,20 @@ void vecAddKernel(float * a, float * b, float * c, int size)
 
 }
 
-float vecAddGPU(float * h_a, float * h_b, float * h_c, int len, CudaBlockInfo * blockInfo){
+float vecMultGPU(float * h_a, float * h_b, float * h_c, int len, CudaBlockInfo * blockInfo){
 
 	cudaEvent_t start, stop;
 	float elapsedTime;
 
   int size = len * sizeof(float);
-
   float * d_a, * d_b, * d_c;
+  int result = 0;
 
   // alocate memory and move vectors to GPU
   cudaCheckError(cudaMalloc((void**)&d_a, size));
-  cudaMemcpy(d_a, h_a, size,  cudaMemcpyHostToDevice);
+  cudaCheckError(cudaMemcpy(d_a, h_a, size,  cudaMemcpyHostToDevice));
   cudaCheckError(cudaMalloc((void**)&d_b, size));
-  cudaMemcpy(d_b, h_b, size,  cudaMemcpyHostToDevice);
+  cudaCheckError(cudaMemcpy(d_b, h_b, size,  cudaMemcpyHostToDevice));
   cudaCheckError(cudaMalloc((void**)&d_c, size));
 
   // start timings
@@ -49,11 +49,10 @@ float vecAddGPU(float * h_a, float * h_b, float * h_c, int len, CudaBlockInfo * 
 	cudaEventRecord(start, 0);
 
   // peform operation on GPU
-  vecAddKernel<<<blockInfo->blocksPerGrid, blockInfo->threadsPerBlock>>>(d_a, d_b, d_c, len);
+  vecMultKernel<<<blockInfo->blocksPerGrid, blockInfo->threadsPerBlock>>>(d_a, d_b, d_c, len);
   // copy results back to CPU
-  cudaMemcpy(h_c, d_c, size,  cudaMemcpyDeviceToHost);
+  cudaCheckError(cudaMemcpy(h_c, d_c, size,  cudaMemcpyDeviceToHost));
 
-  int result = 0;
   for(int i=0; i<len; ++i){
     result += h_c[i];
   }
@@ -66,7 +65,6 @@ float vecAddGPU(float * h_a, float * h_b, float * h_c, int len, CudaBlockInfo * 
   // print process time
 	printf("Time to calculate results on GPU: %f ms.\n", elapsedTime);
 
-
   // free GPU memory
   cudaFree(d_a); cudaFree(d_b); cudaFree(d_c);
 
@@ -76,15 +74,15 @@ float vecAddGPU(float * h_a, float * h_b, float * h_c, int len, CudaBlockInfo * 
   return result;
 }
 
-float vecAddCPU(float * a, float * b, float * c, int len){
+float vecMultCPU(float * a, float * b, float * c, int len){
 	cudaEvent_t start, stop;
 	float elapsedTime;
+  int result = 0;
 
 	cudaEventCreate(&start);    
 	cudaEventCreate(&stop);
 	cudaEventRecord(start, 0);
 
-  int result = 0;
   for(int i=0; i<len; ++i){
     c[i] = a[i] * b[i];
     result += c[i];
@@ -156,8 +154,8 @@ int validateBlockInfoForDevice(CudaBlockInfo  * blockInfo, int vecLen, int devic
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, deviceNum);
 
-    if((blockInfo->threadsPerBlock*blockInfo->blocksPerGrid) != vecLen){
-      printf("Number of threads per block x Number of blocks per grid != Vector Length\n");
+    if((blockInfo->threadsPerBlock*blockInfo->blocksPerGrid) < vecLen){
+      printf("Number of threads per block x Number of blocks per grid < Vector Length\n");
     }
     else if(prop.maxThreadsPerBlock < blockInfo->threadsPerBlock){
       printf("\nDevice %s is unable to process request!\n", prop.name);
@@ -247,14 +245,14 @@ int main(int argc, char * argv[])
 
   printf("\nVector multiplication using CPU with %d elements:\n", *vecLength);
 
-  result = vecAddCPU(a, b, c, *vecLength);
+  result = vecMultCPU(a, b, c, *vecLength);
   printf("Result of vector multiplication on the CPU: %.2f\n", result);
   //printVecs(a, b, c, *vecLength);
 
   printf("\nVector multiplication using GPU with %d elements, %d threads per block and %d blocks per grid:\n", 
          *vecLength, blockInfo->threadsPerBlock, blockInfo->blocksPerGrid);
 
-  result = vecAddGPU(a, b, c, *vecLength, blockInfo);
+  result = vecMultGPU(a, b, c, *vecLength, blockInfo);
   printf("Result of vector multiplication on the GPU: %.2f\n", result);
   //printVecs(a, b, c, *vecLength);
 
