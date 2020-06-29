@@ -1,4 +1,4 @@
-NVCC=/usr/local/cuda/bin/nvcc
+NVCC=/usr/local/cuda-10.0/bin/nvcc
 EXE=VecMult
 SOURCE=VectorMultiply.cu
 

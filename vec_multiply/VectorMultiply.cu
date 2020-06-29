@@ -14,7 +14,7 @@ struct CudaBlockInfo{
 void cudaCheckError(cudaError_t err) {
   if(err!=cudaSuccess) {
     printf("Cuda failure %s in %s line %d\n", cudaGetErrorString(err), __FILE__, __LINE__);
-    exit(0);
+    exit(EXIT_FAILURE);
  }
 }
 
@@ -83,6 +83,7 @@ double vecMultCPU(double * a, double * b, double * c, int len){
 	cudaEventCreate(&stop);
 	cudaEventRecord(start, 0);
 
+  // do vector multiplication
   for(int i=0; i<len; ++i){
     c[i] = a[i] * b[i];
     result += c[i];
@@ -238,6 +239,11 @@ int main(int argc, char * argv[])
   double * a = (double*)malloc(*vecLength * sizeof(double));
   double * b = (double*)malloc(*vecLength * sizeof(double));
   double * c = (double*)malloc(*vecLength * sizeof(double));
+  if(a == NULL || b == NULL || c == NULL){
+    perror("malloc");
+    exit(EXIT_FAILURE);
+  }
+
   double result = 0;
 
   // fill vectors a and b with values
@@ -247,17 +253,16 @@ int main(int argc, char * argv[])
 
   result = vecMultCPU(a, b, c, *vecLength);
   printf("Result of vector multiplication on the CPU: %.2lf\n", result);
-  //printVecs(a, b, c, *vecLength);
 
   printf("\nVector multiplication using GPU with %d elements, %d threads per block and %d blocks per grid:\n", 
          *vecLength, blockInfo->threadsPerBlock, blockInfo->blocksPerGrid);
 
   result = vecMultGPU(a, b, c, *vecLength, blockInfo);
   printf("Result of vector multiplication on the GPU: %.2lf\n", result);
-  //printVecs(a, b, c, *vecLength);
 
   // free memory
   free(a); free(b); free(c);
+  free(vecLength); free(blockInfo);
 
   return 0;
 }
