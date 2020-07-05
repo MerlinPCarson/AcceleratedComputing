@@ -17,7 +17,9 @@
 
 struct CudaBlockInfo{
   dim3 threadsPerBlock;
+  dim3 threadsPerTile;
   dim3 blocksPerGrid;
+  dim3 tilesPerGrid;
 };
 
 // Function for checking for cuda errors
@@ -113,64 +115,60 @@ void stepTileKernel(int *current, int *next, int width, int height){
   int num_neighbors = 0;
 
   // load cells data
-  if((row < width) && (col < width)){
-    c_ds[row+1][col+1] = current[row * TILESIZE + col];
+  if((row < height) && (col < width)){
+    c_ds[ty+1][tx+1] = current[row * width + col];
   }
+
 //  tile boundry 
-  if (row == 0){
-    if (col == 0){
+  if (ty == 0){
+    if (tx == 0){
       nx = (col - 1 + width) % width;
       ny = (row - 1 + height) % height;
 //      printf("Filling (%d,%d) with (%d, %d)\n",row, col, ny,nx);
-      c_ds[row][col] = current[ny * TILESIZE + nx];
+      c_ds[ty][tx] = current[ny * width + nx];
     }
-    else if(col == (TILESIZE-1)){
+    else if(tx == (TILESIZE-1)){
       nx = (col + 1 + width) % width;
       ny = (row - 1 + height) % height;
 //      printf("Filling (%d,%d) with (%d, %d)\n",row, col+2, ny,nx);
-      c_ds[row][col+2] = current[ny * TILESIZE + nx];
+      c_ds[ty][tx+2] = current[ny * width + nx];
     }
     ny = (row - 1 + height) % height;
-    c_ds[row][col+1] = current[ny * TILESIZE + col];
+    c_ds[ty][tx+1] = current[ny * width + col];
   }
-  else if(row == (TILESIZE-1)){
-    if (col == 0){
+  else if(ty == (TILESIZE-1)){
+    if (tx == 0){
       nx = (col - 1 + width) % width;
       ny = (row + 1 + height) % height;
 //      printf("Filling (%d,%d) with (%d, %d)\n",row+2, col, ny,nx);
-      c_ds[row+2][col] = current[ny * TILESIZE + nx];
+      c_ds[ty+2][tx] = current[ny * width + nx];
     }
-    else if(col == (TILESIZE-1)){
+    else if(tx == (TILESIZE-1)){
       nx = (col + 1 + width) % width;
       ny = (row + 1 + height) % height;
 //      printf("Filling (%d,%d) with (%d, %d)\n",row+2, col+2, ny,nx);
-      c_ds[row+2][col+2] = current[ny * TILESIZE + nx];
+      c_ds[ty+2][tx+2] = current[ny * width + nx];
     }
     ny = (row + 1 + height) % height;
-    c_ds[row+2][col+1] = current[ny * TILESIZE + col];
+    c_ds[ty+2][tx+1] = current[ny * width + col];
   }
-  if (col == 0){
+  if (tx == 0){
     nx = (col - 1 + width) % width;
 //      printf("Filling (%d,%d) with (%d, %d)\n",row+1, col, row,nx);
-    c_ds[row+1][col] = current[(row) * TILESIZE + nx];
+    c_ds[ty+1][tx] = current[row * width + nx];
   }
-  else if(col == (TILESIZE-1)){
+  else if(tx == (TILESIZE-1)){
     nx = (col + 1 + width) % width;
 //    printf("Filling (%d,%d) with (%d, %d)\n",row+1, col+2, row,nx);
-    c_ds[row+1][col+2] = current[(row) * TILESIZE + nx];
+    c_ds[ty+1][tx+2] = current[row * width + nx];
   }
 
   __syncthreads();
 
-  if ((row < TILESIZE) && (col < TILESIZE)){
+  if ((row < height) && (col < width)){
       // count this cell's alive neighbors
       for (int i=0; i<8; i++) {
-          // To make the board torroidal, we use modular arithmetic to
-          // wrap neighbor coordinates around to the other side of the
-          // board if they fall off.
-          //nx = (col + offsets[i][0] + width) % width;
-          //ny = (row + offsets[i][1] + height) % height;
-          if (c_ds[row+1+offsets[i][0]][col+1+offsets[i][1]]) {
+          if (c_ds[ty+1+offsets[i][0]][tx+1+offsets[i][1]]) {
               num_neighbors++;
           }
         }
@@ -210,6 +208,7 @@ void stepTileKernel(int *current, int *next, int width, int height){
 //  }
 
   __syncthreads();
+
 }
 
 __global__
@@ -269,9 +268,9 @@ float stepGPU(int *h_current, int *h_next, int width, int height, CudaBlockInfo 
 	cudaEventRecord(start, 0);
 
   // peform operation on GPU
-  //printf("%d,%d,%d:%d,%d,%d\n", blockInfo->threadsPerBlock.x, blockInfo->threadsPerBlock.y, blockInfo->threadsPerBlock.z, blockInfo->blocksPerGrid.x, blockInfo->blocksPerGrid.y, blockInfo->blocksPerGrid.z);
+  printf("%d,%d,%d:%d,%d,%d\n", blockInfo->threadsPerBlock.x, blockInfo->threadsPerBlock.y, blockInfo->threadsPerBlock.z, blockInfo->blocksPerGrid.x, blockInfo->blocksPerGrid.y, blockInfo->blocksPerGrid.z);
   //stepKernel<<<blockInfo->blocksPerGrid, blockInfo->threadsPerBlock>>>(d_current, d_next, width, height);
-  stepTileKernel<<<blockInfo->blocksPerGrid, blockInfo->threadsPerBlock>>>(d_current, d_next, width, height);
+  stepTileKernel<<<blockInfo->tilesPerGrid, blockInfo->threadsPerTile>>>(d_current, d_next, width, height);
   // copy results back to CPU
   cudaCheckError(cudaMemcpy(h_next, d_next, size,  cudaMemcpyDeviceToHost));
 
@@ -362,9 +361,13 @@ int main(int argc, const char *argv[]) {
     //bool on_gpu = true;
     CudaBlockInfo * blockInfo = (CudaBlockInfo *)malloc(sizeof(CudaBlockInfo));
     dim3 blocksPerGrid(ceil((float)width/BLOCKSIZE), ceil((float)height/BLOCKSIZE), 1);
+    dim3 tilesPerGrid(ceil((float)width/TILESIZE), ceil((float)height/TILESIZE), 1);
     dim3 threadsPerBlock(BLOCKSIZE, BLOCKSIZE, 1);
+    dim3 threadsPerTile(TILESIZE, TILESIZE, 1);
+    blockInfo->threadsPerTile = threadsPerTile;
     blockInfo->threadsPerBlock = threadsPerBlock;
     blockInfo->blocksPerGrid = blocksPerGrid;
+    blockInfo->tilesPerGrid = tilesPerGrid;
     struct timespec delay = {0, 125000000}; // 0.125 seconds
     struct timespec remaining;
 
@@ -384,7 +387,7 @@ int main(int argc, const char *argv[]) {
     currentGPU = (int *) malloc(board_size); // same as: int current[width * height];
     nextGPU = (int *) malloc(board_size);    // same as: int next[width *height];
  
-    printf("Initializing board for CPU\n"); 
+    printf("Initializing boards\n"); 
     fill_board(start, width, height);
     memcpy(current, start, board_size);
     memcpy(currentGPU, start, board_size);
@@ -414,49 +417,24 @@ int main(int argc, const char *argv[]) {
         memcpy(currentGPU, nextGPU, board_size);
 
         // print process time
-//        //printf("Time to calculate results on GPU: %f ms.\n", procTime);
-//
+        //printf("Time to calculate results on GPU: %f ms.\n", procTime);
+
         // We sleep only because textual output is slow and the console needs
         // time to catch up. We don't sleep in the graphical X11 version.
         if (out==1)
             nanosleep(&delay, &remaining);
     }
 
-//    currIter = 0;
-//
-//    // Initialize the global "current".
-//    printf("Initializing board for GPU\n"); 
-//    nanosleep(&delay, &remaining);
-//    memcpy(current, start, board_size);
-//    //fill_board(current, width, height);
-//
-//    while (many<iters) {
-//        many++;
-//        if (out==1)
-//            print_board(current, width, height);
-//
-//        // copy the `next` to CPU and into `current` to be ready to repeat the process
-//        procTime = stepGPU(current, next, width, height, blockInfo);
-//        totalProcTimeGPU += procTime;
-//
-//        // Copy the next state, that step() just wrote into, to current state
-//        memcpy(current, next, board_size);
-//
-//        // print process time
-//        //printf("Time to calculate results on GPU: %f ms.\n", procTime);
-//
-//        // We sleep only because textual output is slow and the console needs
-//        // time to catch up. We don't sleep in the graphical X11 version.
-//        if (out==1)
-//            nanosleep(&delay, &remaining);
-//    }
 
     printf("Average processing time on CPU is %f ms.\n", (totalProcTimeCPU/numIters));
     printf("Average processing time on GPU is %f ms.\n", (totalProcTimeGPU/numIters));
 
     free(blockInfo);
+    free(start);
     free(current);
     free(next);
+    free(currentGPU);
+    free(nextGPU);
 
     return 0;
 }
