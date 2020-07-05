@@ -116,58 +116,58 @@ void stepTileKernel(int *current, int *next, int width, int height){
   }
   else if(col == (TILESIZE-1)){
     nx = (col + 1 + width) % width;
-//    printf("right boundry with (%d %d)\n", row, nx);
-    printf("Filling (%d,%d) with (%d, %d)\n",row+1, col+2, row,nx);
+//    printf("Filling (%d,%d) with (%d, %d)\n",row+1, col+2, row,nx);
     c_ds[row+1][col+2] = current[(row) * TILESIZE + nx];
   }
 
   __syncthreads();
 
-//  if ((row < height) && (col < width)){
-//      // count this cell's alive neighbors
-//      for (int i=0; i<8; i++) {
-//          // To make the board torroidal, we use modular arithmetic to
-//          // wrap neighbor coordinates around to the other side of the
-//          // board if they fall off.
-//          nx = (col + offsets[i][0] + width) % width;
-//          ny = (row + offsets[i][1] + height) % height;
-//          if (current[ny * width + nx]) {
-//              num_neighbors++;
+  if ((row < TILESIZE) && (col < TILESIZE)){
+      // count this cell's alive neighbors
+      for (int i=0; i<8; i++) {
+          // To make the board torroidal, we use modular arithmetic to
+          // wrap neighbor coordinates around to the other side of the
+          // board if they fall off.
+          //nx = (col + offsets[i][0] + width) % width;
+          //ny = (row + offsets[i][1] + height) % height;
+          if (c_ds[row+1+offsets[i][0]][col+1+offsets[i][1]]) {
+              num_neighbors++;
+          }
+        }
+
+      // apply the Game of Life rules to this cell
+      next[row * width + col] = 0;
+      if ((current[row * width + col] && num_neighbors==2) ||
+          num_neighbors==3) {
+        next[row * width + col] = 1;
+      }
+
+  }
+//  if(tx == 0 && ty == 0){
+//    for (int y=0; y<TILESIZE+2; y++) {
+//        for (int x=0; x<TILESIZE+2; x++) {
+//          if(x==0 || x == TILESIZE+1 || y==0 || y==TILESIZE+1){
+//            printf(" ");
+//          }
+//          else{
+//            char c = c_ds[y][x] ? '#':' ';
+//            printf("%c", c);
 //          }
 //        }
-//
-//      // apply the Game of Life rules to this cell
-//      next[row * width + col] = 0;
-//      if ((current[row * width + col] && num_neighbors==2) ||
-//          num_neighbors==3) {
-//      }
-//
+//        printf("\n");
+//    }
+//    printf("-----\n");
 //  }
-  if(tx == 0 && ty == 0){
-    for (int y=0; y<TILESIZE+2; y++) {
-        for (int x=0; x<TILESIZE+2; x++) {
-          if(x==0 || x == TILESIZE+1 || y==0 || y==TILESIZE+1){
-            printf(" ");
-          }
-          else{
-            char c = c_ds[y][x] ? '#':' ';
-            printf("%c", c);
-          }
-        }
-        printf("\n");
-    }
-    printf("-----\n");
-  }
-  if(tx == 0 && ty == 0){
-    for (int y=0; y<TILESIZE+2; y++) {
-        for (int x=0; x<TILESIZE+2; x++) {
-            char c = c_ds[y][x] ? '#':' ';
-            printf("%c", c);
-        }
-        printf("\n");
-    }
-    printf("-----\n");
-  }
+//  if(tx == 0 && ty == 0){
+//    for (int y=0; y<TILESIZE+2; y++) {
+//        for (int x=0; x<TILESIZE+2; x++) {
+//            char c = c_ds[y][x] ? '#':' ';
+//            printf("%c", c);
+//        }
+//        printf("\n");
+//    }
+//    printf("-----\n");
+//  }
 
   __syncthreads();
 }
@@ -229,7 +229,7 @@ float stepGPU(int *h_current, int *h_next, int width, int height, CudaBlockInfo 
 	cudaEventRecord(start, 0);
 
   // peform operation on GPU
-  printf("%d,%d,%d:%d,%d,%d\n", blockInfo->threadsPerBlock.x, blockInfo->threadsPerBlock.y, blockInfo->threadsPerBlock.z, blockInfo->blocksPerGrid.x, blockInfo->blocksPerGrid.y, blockInfo->blocksPerGrid.z);
+  //printf("%d,%d,%d:%d,%d,%d\n", blockInfo->threadsPerBlock.x, blockInfo->threadsPerBlock.y, blockInfo->threadsPerBlock.z, blockInfo->blocksPerGrid.x, blockInfo->blocksPerGrid.y, blockInfo->blocksPerGrid.z);
   //stepKernel<<<blockInfo->blocksPerGrid, blockInfo->threadsPerBlock>>>(d_current, d_next, width, height);
   stepTileKernel<<<blockInfo->blocksPerGrid, blockInfo->threadsPerBlock>>>(d_current, d_next, width, height);
   // copy results back to CPU
@@ -333,21 +333,23 @@ int main(int argc, const char *argv[]) {
     float totalProcTimeGPU = 0;
 
     // The two boards 
-    int *current, *next, many=0;
+    int *start, *current, *next, many=0;
 
     size_t board_size = sizeof(int) * width * height;
+    start = (int *) malloc(board_size); // same as: int current[width * height];
     current = (int *) malloc(board_size); // same as: int current[width * height];
     next = (int *) malloc(board_size);    // same as: int next[width *height];
  
     printf("Initializing board for CPU\n"); 
-    fill_board(current, width, height);
+    fill_board(start, width, height);
+    memcpy(current, start, board_size);
 
 
     // Run on CPU
     while (many<iters) {
         many++;
-        //if (out==1)
-        //    print_board(current, width, height);
+        if (out==1)
+            print_board(current, width, height);
 
         //evaluate the `current` board, writing the next generation into `next`.
         procTime = step(current, next, width, height);
@@ -361,8 +363,8 @@ int main(int argc, const char *argv[]) {
 
         // We sleep only because textual output is slow and the console needs
         // time to catch up. We don't sleep in the graphical X11 version.
-        //if (out==1)
-        //    nanosleep(&delay, &remaining);
+        if (out==1)
+            nanosleep(&delay, &remaining);
     }
 
     many = 0;
@@ -370,7 +372,8 @@ int main(int argc, const char *argv[]) {
     // Initialize the global "current".
     printf("Initializing board for GPU\n"); 
     nanosleep(&delay, &remaining);
-    fill_board(current, width, height);
+    memcpy(current, start, board_size);
+    //fill_board(current, width, height);
 
     while (many<iters) {
         many++;
