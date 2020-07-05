@@ -7,7 +7,8 @@
 #include <string.h> // for memcpy
 #include <stdio.h> // for printf
 #include <time.h> // for nanosleep
-#include <device_types.h>
+#include <ctype.h> // isdigit
+#include <device_types.h> // print in kernel
 
 #define WIDTH 60
 #define HEIGHT 40
@@ -20,6 +21,14 @@ struct CudaBlockInfo{
   dim3 threadsPerTile;
   dim3 blocksPerGrid;
   dim3 tilesPerGrid;
+};
+
+struct Args{
+  int numIters;
+  int display;
+  int width;
+  int height;
+  int showTile;
 };
 
 // Function for checking for cuda errors
@@ -249,7 +258,7 @@ void stepKernel(int *current, int *next, int width, int height){
   }
 }
 
-float stepGPU(int *h_current, int *h_next, int width, int height, CudaBlockInfo * blockInfo ) {
+float stepGPU(int *h_current, int *h_next, int width, int height, CudaBlockInfo * blockInfo, int tile) {
   // timing vars
 	cudaEvent_t start, stop;
 	float elapsedTime;
@@ -268,9 +277,14 @@ float stepGPU(int *h_current, int *h_next, int width, int height, CudaBlockInfo 
 	cudaEventRecord(start, 0);
 
   // peform operation on GPU
-  printf("%d,%d,%d:%d,%d,%d\n", blockInfo->threadsPerBlock.x, blockInfo->threadsPerBlock.y, blockInfo->threadsPerBlock.z, blockInfo->blocksPerGrid.x, blockInfo->blocksPerGrid.y, blockInfo->blocksPerGrid.z);
-  //stepKernel<<<blockInfo->blocksPerGrid, blockInfo->threadsPerBlock>>>(d_current, d_next, width, height);
-  stepTileKernel<<<blockInfo->tilesPerGrid, blockInfo->threadsPerTile>>>(d_current, d_next, width, height);
+  //printf("%d,%d,%d:%d,%d,%d\n", blockInfo->threadsPerBlock.x, blockInfo->threadsPerBlock.y, blockInfo->threadsPerBlock.z, blockInfo->blocksPerGrid.x, blockInfo->blocksPerGrid.y, blockInfo->blocksPerGrid.z);
+
+  if(!tile){
+  stepKernel<<<blockInfo->blocksPerGrid, blockInfo->threadsPerBlock>>>(d_current, d_next, width, height);
+  } else{
+    stepTileKernel<<<blockInfo->tilesPerGrid, blockInfo->threadsPerTile>>>(d_current, d_next, width, height);
+  }
+
   // copy results back to CPU
   cudaCheckError(cudaMemcpy(h_next, d_next, size,  cudaMemcpyDeviceToHost));
 
@@ -337,31 +351,59 @@ float step(int *current, int *next, int width, int height) {
     return elapsedTime;
 }
 
+void printUsage(){
+  printf("\nUsage -- \n");
+  printf("  ./gof <number of iterations> <1=display> <width of board> <height of board> <1=show tiling>\n");
+}
+
+int isNumeric(const char * str){
+  int len = strlen(str);
+  for(int i=0; i<len; ++i){
+    if(!isdigit(str[i]))
+        return false;
+  }
+  return true;
+}
+
+int loadArguments(int argc, const char * argv[], Args *args){
+
+  if(argc < 5){
+    printf("\nIncorrect number of arguments!\n\n");
+  }
+  else if (!isNumeric(argv[1]) || !isNumeric(argv[2]) || !isNumeric(argv[3]) || !isNumeric(argv[4])){
+    printf("\nNon-numeric value found in command line arguments\n\n");
+  }
+  else{
+    args->numIters = atoi(argv[1]);
+    args->display = atoi(argv[2]);
+    args->width = atoi(argv[3]);
+    args->height = atoi(argv[4]);
+
+    args->showTile = false;
+    if((argc == 6) && isNumeric(argv[5])){
+      args->showTile = atoi(argv[5]);
+    }
+    return 1;
+  }
+
+  printUsage();
+  return 0;
+}
+
 int main(int argc, const char *argv[]) {
 
-
-    // parse the width and height command line arguments, if provided
-    int width, height, numIters, out;
-    if (argc < 3) {
-        printf("usage: life iterations 1=print"); 
+    Args args;
+    if(!loadArguments(argc, argv, &args)){
         exit(1);
     }
-    numIters = atoi(argv[1]);
-    out = atoi(argv[2]);
-    if (argc == 5) {
-        width = atoi(argv[3]);
-        height = atoi(argv[4]);
-        printf("Running %d iterations at %d by %d pixels.\n", numIters, width, height);
-    } else {
-        width = WIDTH;
-        height = HEIGHT;
-    }
+
+    printf("Running %d iterations at %d by %d pixels.\n", args.numIters, args.width, args.height);
 
     // GPU vars
     //bool on_gpu = true;
     CudaBlockInfo * blockInfo = (CudaBlockInfo *)malloc(sizeof(CudaBlockInfo));
-    dim3 blocksPerGrid(ceil((float)width/BLOCKSIZE), ceil((float)height/BLOCKSIZE), 1);
-    dim3 tilesPerGrid(ceil((float)width/TILESIZE), ceil((float)height/TILESIZE), 1);
+    dim3 blocksPerGrid(ceil((float)args.width/BLOCKSIZE), ceil((float)args.height/BLOCKSIZE), 1);
+    dim3 tilesPerGrid(ceil((float)args.width/TILESIZE), ceil((float)args.height/TILESIZE), 1);
     dim3 threadsPerBlock(BLOCKSIZE, BLOCKSIZE, 1);
     dim3 threadsPerTile(TILESIZE, TILESIZE, 1);
     blockInfo->threadsPerTile = threadsPerTile;
@@ -371,70 +413,77 @@ int main(int argc, const char *argv[]) {
     struct timespec delay = {0, 125000000}; // 0.125 seconds
     struct timespec remaining;
 
-    float procTime = 0;
-    float totalProcTimeCPU = 0;
-    float totalProcTimeGPU = 0;
+    float totalProcTimeCPU = 0.0;
+    float totalProcTimeGPU = 0.0;
+    float totalProcTimeGPUTile = 0.0;
 
     // The two boards 
     int currIter = 0;
     int *start, *current, *next;
     int *currentGPU, *nextGPU;
+    int *currentGPUTile, *nextGPUTile;
 
-    size_t board_size = sizeof(int) * width * height;
+    size_t board_size = sizeof(int) * args.width * args.height;
     start = (int *) malloc(board_size); // same as: int current[width * height];
     current = (int *) malloc(board_size); // same as: int current[width * height];
     next = (int *) malloc(board_size);    // same as: int next[width *height];
     currentGPU = (int *) malloc(board_size); // same as: int current[width * height];
     nextGPU = (int *) malloc(board_size);    // same as: int next[width *height];
+    currentGPUTile = (int *) malloc(board_size); // same as: int current[width * height];
+    nextGPUTile = (int *) malloc(board_size);    // same as: int next[width *height];
  
     printf("Initializing boards\n"); 
-    fill_board(start, width, height);
+    fill_board(start, args.width, args.height);
     memcpy(current, start, board_size);
     memcpy(currentGPU, start, board_size);
+    memcpy(currentGPUTile, start, board_size);
 
 
     // Run on CPU
-    while (currIter<numIters) {
+    while (currIter<args.numIters) {
         ++currIter;
-        if (out==1)
-            print_boards(current, currentGPU, width, height);
+        if (args.display) {
+            if(!args.showTile) {
+              print_boards(current, currentGPU, args.width, args.height);
+            } else{
+              print_boards(current, currentGPUTile, args.width, args.height);
+            }
+        }
 
         //evaluate the `current` board, writing the next generation into `next`.
-        procTime = step(current, next, width, height);
-        totalProcTimeCPU += procTime;
+        totalProcTimeCPU += step(current, next, args.width, args.height);
 
         // Copy the next state, that step() just wrote into, to current state
         memcpy(current, next, board_size);
 
-        // print process time
-        //printf("Time to calculate results on CPU: %f ms.\n", procTime);
-
         // copy the `next` to CPU and into `current` to be ready to repeat the process
-        procTime = stepGPU(currentGPU, nextGPU, width, height, blockInfo);
-        totalProcTimeGPU += procTime;
+        totalProcTimeGPU += stepGPU(currentGPU, nextGPU, args.width, args.height, blockInfo, false);
 
         // Copy the next state, that step() just wrote into, to current state
         memcpy(currentGPU, nextGPU, board_size);
 
-        // print process time
-        //printf("Time to calculate results on GPU: %f ms.\n", procTime);
+        // copy the `next` to CPU and into `current` to be ready to repeat the process
+        totalProcTimeGPUTile += stepGPU(currentGPUTile, nextGPUTile, args.width, args.height, blockInfo, true);
+
+        // Copy the next state, that step() just wrote into, to current state
+        memcpy(currentGPUTile, nextGPUTile, board_size);
 
         // We sleep only because textual output is slow and the console needs
         // time to catch up. We don't sleep in the graphical X11 version.
-        if (out==1)
+        if (args.display)
             nanosleep(&delay, &remaining);
     }
 
 
-    printf("Average processing time on CPU is %f ms.\n", (totalProcTimeCPU/numIters));
-    printf("Average processing time on GPU is %f ms.\n", (totalProcTimeGPU/numIters));
+    printf("Average processing time on CPU is %f ms.\n", (totalProcTimeCPU/args.numIters));
+    printf("Average processing time on GPU is %f ms.\n", (totalProcTimeGPU/args.numIters));
+    printf("Average processing time on GPU with tiling %f ms.\n", (totalProcTimeGPUTile/args.numIters));
 
     free(blockInfo);
     free(start);
-    free(current);
-    free(next);
-    free(currentGPU);
-    free(nextGPU);
+    free(current); free(next);
+    free(currentGPU); free(nextGPU);
+    free(currentGPUTile); free(nextGPUTile);
 
     return 0;
 }
