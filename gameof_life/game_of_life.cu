@@ -51,6 +51,46 @@ void print_board(int *board, int width, int height) {
 }
 
 
+void print_boards(int *boardCPU, int *boardGPU, int width, int height) {
+    int x, y;
+    for (y=0; y<height; ++y) {
+        for (x=0; x<2*width; ++x) {
+            if(x<width){
+              char c = boardCPU[y * width + x] ? '#':' ';
+              printf("%c", c);
+            }
+            else{
+              if(x==width){
+                printf("\t");
+              }
+              char c = boardGPU[y%width * width + x%width] ? '#':' ';
+              printf("%c", c);
+            }
+        }
+        printf("\n");
+    }
+    for(y=0; y<2; ++y){
+      for(x=0; x<width+3; ++x){
+        if (y==1 && x==0){
+          printf("\t");
+        }
+        if((x<((width/2)-2)) || (x>((width/2)+2))){
+          printf("-");
+        }
+        else if(x==(width/2)){
+          if(y==0){
+            printf("CPU");
+          }
+          else{
+            printf("GPU");
+          }
+
+        }
+      }
+    }
+    printf("\n");
+}
+
 __global__
 void stepTileKernel(int *current, int *next, int width, int height){
 
@@ -302,17 +342,17 @@ int main(int argc, const char *argv[]) {
 
 
     // parse the width and height command line arguments, if provided
-    int width, height, iters, out;
+    int width, height, numIters, out;
     if (argc < 3) {
         printf("usage: life iterations 1=print"); 
         exit(1);
     }
-    iters = atoi(argv[1]);
+    numIters = atoi(argv[1]);
     out = atoi(argv[2]);
     if (argc == 5) {
         width = atoi(argv[3]);
         height = atoi(argv[4]);
-        printf("Running %d iterations at %d by %d pixels.\n", iters, width, height);
+        printf("Running %d iterations at %d by %d pixels.\n", numIters, width, height);
     } else {
         width = WIDTH;
         height = HEIGHT;
@@ -333,27 +373,32 @@ int main(int argc, const char *argv[]) {
     float totalProcTimeGPU = 0;
 
     // The two boards 
-    int *start, *current, *next, many=0;
+    int currIter = 0;
+    int *start, *current, *next;
+    int *currentGPU, *nextGPU;
 
     size_t board_size = sizeof(int) * width * height;
     start = (int *) malloc(board_size); // same as: int current[width * height];
     current = (int *) malloc(board_size); // same as: int current[width * height];
     next = (int *) malloc(board_size);    // same as: int next[width *height];
+    currentGPU = (int *) malloc(board_size); // same as: int current[width * height];
+    nextGPU = (int *) malloc(board_size);    // same as: int next[width *height];
  
     printf("Initializing board for CPU\n"); 
     fill_board(start, width, height);
     memcpy(current, start, board_size);
+    memcpy(currentGPU, start, board_size);
 
 
     // Run on CPU
-    while (many<iters) {
-        many++;
+    while (currIter<numIters) {
+        ++currIter;
         if (out==1)
-            print_board(current, width, height);
+            print_boards(current, currentGPU, width, height);
 
         //evaluate the `current` board, writing the next generation into `next`.
         procTime = step(current, next, width, height);
-        totalProcTimeCPU += step(current, next, width, height);
+        totalProcTimeCPU += procTime;
 
         // Copy the next state, that step() just wrote into, to current state
         memcpy(current, next, board_size);
@@ -361,43 +406,53 @@ int main(int argc, const char *argv[]) {
         // print process time
         //printf("Time to calculate results on CPU: %f ms.\n", procTime);
 
-        // We sleep only because textual output is slow and the console needs
-        // time to catch up. We don't sleep in the graphical X11 version.
-        if (out==1)
-            nanosleep(&delay, &remaining);
-    }
-
-    many = 0;
-
-    // Initialize the global "current".
-    printf("Initializing board for GPU\n"); 
-    nanosleep(&delay, &remaining);
-    memcpy(current, start, board_size);
-    //fill_board(current, width, height);
-
-    while (many<iters) {
-        many++;
-        if (out==1)
-            print_board(current, width, height);
-
         // copy the `next` to CPU and into `current` to be ready to repeat the process
-        procTime = stepGPU(current, next, width, height, blockInfo);
+        procTime = stepGPU(currentGPU, nextGPU, width, height, blockInfo);
         totalProcTimeGPU += procTime;
 
         // Copy the next state, that step() just wrote into, to current state
-        memcpy(current, next, board_size);
+        memcpy(currentGPU, nextGPU, board_size);
 
         // print process time
-        //printf("Time to calculate results on GPU: %f ms.\n", procTime);
-
+//        //printf("Time to calculate results on GPU: %f ms.\n", procTime);
+//
         // We sleep only because textual output is slow and the console needs
         // time to catch up. We don't sleep in the graphical X11 version.
         if (out==1)
             nanosleep(&delay, &remaining);
     }
 
-    printf("Average processing time on CPU is %f ms.\n", (totalProcTimeCPU/iters));
-    printf("Average processing time on GPU is %f ms.\n", (totalProcTimeGPU/iters));
+//    currIter = 0;
+//
+//    // Initialize the global "current".
+//    printf("Initializing board for GPU\n"); 
+//    nanosleep(&delay, &remaining);
+//    memcpy(current, start, board_size);
+//    //fill_board(current, width, height);
+//
+//    while (many<iters) {
+//        many++;
+//        if (out==1)
+//            print_board(current, width, height);
+//
+//        // copy the `next` to CPU and into `current` to be ready to repeat the process
+//        procTime = stepGPU(current, next, width, height, blockInfo);
+//        totalProcTimeGPU += procTime;
+//
+//        // Copy the next state, that step() just wrote into, to current state
+//        memcpy(current, next, board_size);
+//
+//        // print process time
+//        //printf("Time to calculate results on GPU: %f ms.\n", procTime);
+//
+//        // We sleep only because textual output is slow and the console needs
+//        // time to catch up. We don't sleep in the graphical X11 version.
+//        if (out==1)
+//            nanosleep(&delay, &remaining);
+//    }
+
+    printf("Average processing time on CPU is %f ms.\n", (totalProcTimeCPU/numIters));
+    printf("Average processing time on GPU is %f ms.\n", (totalProcTimeGPU/numIters));
 
     free(blockInfo);
     free(current);
