@@ -10,10 +10,10 @@
 #include <ctype.h> // isdigit
 #include <device_types.h> // print in kernel
 
-#define WIDTH 60
-#define HEIGHT 40
-#define BLOCKSIZE 16
-#define TILESIZE 16
+#define WIDTH 32 
+#define HEIGHT 32 
+#define BLOCKSIZE 32 
+#define TILESIZE 32 
 
 
 struct CudaBlockInfo{
@@ -258,7 +258,7 @@ void stepKernel(int *current, int *next, int width, int height){
   }
 }
 
-float stepGPU(int *h_current, int *h_next, int width, int height, CudaBlockInfo * blockInfo, int tile) {
+float stepGPU(int *h_current, int *h_next, int width, int height, CudaBlockInfo blockInfo, int tile) {
   // timing vars
 	cudaEvent_t start, stop;
 	float elapsedTime;
@@ -280,9 +280,9 @@ float stepGPU(int *h_current, int *h_next, int width, int height, CudaBlockInfo 
   //printf("%d,%d,%d:%d,%d,%d\n", blockInfo->threadsPerBlock.x, blockInfo->threadsPerBlock.y, blockInfo->threadsPerBlock.z, blockInfo->blocksPerGrid.x, blockInfo->blocksPerGrid.y, blockInfo->blocksPerGrid.z);
 
   if(!tile){
-  stepKernel<<<blockInfo->blocksPerGrid, blockInfo->threadsPerBlock>>>(d_current, d_next, width, height);
+  stepKernel<<<blockInfo.blocksPerGrid, blockInfo.threadsPerBlock>>>(d_current, d_next, width, height);
   } else{
-    stepTileKernel<<<blockInfo->tilesPerGrid, blockInfo->threadsPerTile>>>(d_current, d_next, width, height);
+    stepTileKernel<<<blockInfo.tilesPerGrid, blockInfo.threadsPerTile>>>(d_current, d_next, width, height);
   }
 
   // copy results back to CPU
@@ -353,7 +353,7 @@ float step(int *current, int *next, int width, int height) {
 
 void printUsage(){
   printf("\nUsage -- \n");
-  printf("  ./gof <number of iterations> <1=display> <width of board> <height of board> <1=show tiling>\n");
+  printf("  ./gof <number of iterations> <1=display> optional: <width of board> <height of board> <1=show tiling>\n");
 }
 
 int isNumeric(const char * str){
@@ -367,7 +367,20 @@ int isNumeric(const char * str){
 
 int loadArguments(int argc, const char * argv[], Args *args){
 
-  if(argc < 5){
+  if (argc == 3){
+    if (!isNumeric(argv[1]) || !isNumeric(argv[2])) {
+      printf("\nNon-numeric value found in command line arguments\n\n");
+    }
+    else {
+      args->numIters = atoi(argv[1]);
+      args->display = atoi(argv[2]);
+      args->width = WIDTH;
+      args->height = HEIGHT;
+      args->showTile = false;
+      return 1;
+    }
+  }
+  else if(argc < 5){
     printf("\nIncorrect number of arguments!\n\n");
   }
   else if (!isNumeric(argv[1]) || !isNumeric(argv[2]) || !isNumeric(argv[3]) || !isNumeric(argv[4])){
@@ -400,16 +413,16 @@ int main(int argc, const char *argv[]) {
     printf("Running %d iterations at %d by %d pixels.\n", args.numIters, args.width, args.height);
 
     // GPU vars
-    //bool on_gpu = true;
-    CudaBlockInfo * blockInfo = (CudaBlockInfo *)malloc(sizeof(CudaBlockInfo));
+    CudaBlockInfo blockInfo;
     dim3 blocksPerGrid(ceil((float)args.width/BLOCKSIZE), ceil((float)args.height/BLOCKSIZE), 1);
     dim3 tilesPerGrid(ceil((float)args.width/TILESIZE), ceil((float)args.height/TILESIZE), 1);
     dim3 threadsPerBlock(BLOCKSIZE, BLOCKSIZE, 1);
     dim3 threadsPerTile(TILESIZE, TILESIZE, 1);
-    blockInfo->threadsPerTile = threadsPerTile;
-    blockInfo->threadsPerBlock = threadsPerBlock;
-    blockInfo->blocksPerGrid = blocksPerGrid;
-    blockInfo->tilesPerGrid = tilesPerGrid;
+    blockInfo.threadsPerTile = threadsPerTile;
+    blockInfo.threadsPerBlock = threadsPerBlock;
+    blockInfo.blocksPerGrid = blocksPerGrid;
+    blockInfo.tilesPerGrid = tilesPerGrid;
+
     struct timespec delay = {0, 125000000}; // 0.125 seconds
     struct timespec remaining;
 
@@ -479,7 +492,6 @@ int main(int argc, const char *argv[]) {
     printf("Average processing time on GPU is %f ms.\n", (totalProcTimeGPU/args.numIters));
     printf("Average processing time on GPU with tiling %f ms.\n", (totalProcTimeGPUTile/args.numIters));
 
-    free(blockInfo);
     free(start);
     free(current); free(next);
     free(currentGPU); free(nextGPU);
