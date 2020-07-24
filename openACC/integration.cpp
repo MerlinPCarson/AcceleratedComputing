@@ -23,7 +23,7 @@ double testf (double x)
 }
 
 //---------------------------------------
-double integrate (double st, double en, int div, double (*f) (double))
+double integrateCPU (double st, double en, int div, double (*f) (double))
 {
   double localRes = 0;
   double step = (en - st) / div;
@@ -41,6 +41,25 @@ double integrate (double st, double en, int div, double (*f) (double))
   return localRes;
 }
 
+//---------------------------------------
+double integrateOpenACC (double st, double en, int div, double (*f) (double))
+{
+  double localRes = 0;
+  double step = (en - st) / div;
+  double x;
+  x = st;
+  localRes = f (st) + f (en);
+  localRes /= 2;
+#pragma acc loop reduction(+:localRes)
+  for (int i = 1; i < div; i++)
+    {
+      x = i * step + st;
+      localRes = localRes + testf(x);
+    }
+  localRes *= step;
+
+  return localRes;
+}
 //---------------------------------------
 int main (int argc, char *argv[])
 {
@@ -60,18 +79,16 @@ int main (int argc, char *argv[])
   end = atof (argv[2]);
   divisions = atoi (argv[3]);
 
-
   start_t = std::chrono::steady_clock::now();
-  finalRes = integrate (start, end, divisions, testf);
+  finalRes = integrateCPU (start, end, divisions, testf);
 
   elapsedSeconds = (chrono::steady_clock::now() - start_t)*1000;
 
   cout << endl << "Answer: " << finalRes << endl;
   cout << "Execution time on CPU: " <<  elapsedSeconds.count() << " miliseconds\n" << endl;
 
-
   start_t = std::chrono::steady_clock::now();
-  finalRes = integrate (start, end, divisions, testf);
+  finalRes = integrateOpenACC (start, end, divisions, testf);
 
   elapsedSeconds = (chrono::steady_clock::now() - start_t)*1000;
 
