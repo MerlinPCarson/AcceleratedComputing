@@ -1,7 +1,6 @@
-#include <stdio.h>
 #include <stdlib.h>
-//#include <ctype.h>
 #include <time.h>
+#include <limits.h>
 
 
 double vecMultCPU(double * a, double * b, int len){
@@ -30,7 +29,7 @@ double vecMultOpenACC(double *restrict a, double *restrict b, int len){
   clock_t start = clock();
 
   // do vector multiplication
-#pragma acc parallel loop copyin(result,a[:len],b[:len]) reduction(+:result)
+#pragma acc loop 
   for(int i=0; i<len; ++i){
     result += a[i] * b[i];
   }
@@ -50,16 +49,9 @@ void fillVecs(double * a, double * b, int size){
   }
 }
 
-void printVecs(double * a, double * b, double * c, int len){
-  for(int i=0; i<len; ++i){
-    printf("a:%f b:%f, c:%f\n",a[i], b[i], c[i]);
-  }
-
-}
-
 void printUsage(){
   printf("\nUsage -- \n");
-  printf("  VectorMultiply <length of vectors>\n");
+  printf("  dotProd <length of vectors>\n");
 }
 
 int isNumeric(char * str){
@@ -78,6 +70,9 @@ int loadArguments(int argc, char * argv[], int * vecLength){
   }
   else if (!isNumeric(argv[1])){
     printf("\nNon-numeric value found in command line arguments\n\n");
+  }
+  else if (atoi(argv[1]) <= 0 || atoi(argv[1]) >= INT_MAX){
+    printf("\nVector length must be between 0 and %d\n", INT_MAX);
   }
   else{
     *vecLength = atoi(argv[1]);

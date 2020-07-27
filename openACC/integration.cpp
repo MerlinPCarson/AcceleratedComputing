@@ -17,7 +17,10 @@
 using namespace std;
 
 //---------------------------------------
-double testf (double x)
+#pragma acc routine seq
+double testf(double x);
+
+inline double testf (double x)
 {
   return x * x + 2 * sin (x);
 }
@@ -50,12 +53,15 @@ double integrateOpenACC (double st, double en, int div, double (*f) (double))
   x = st;
   localRes = f (st) + f (en);
   localRes /= 2;
-#pragma acc loop reduction(+:localRes)
+#pragma acc data copyin(step, st) create(x) copy(localRes)
+{
+  #pragma acc parallel loop reduction(+:localRes)
   for (int i = 1; i < div; i++)
     {
       x = i * step + st;
-      localRes = localRes + testf(x);
+      localRes += testf(x);
     }
+}
   localRes *= step;
 
   return localRes;
@@ -70,7 +76,7 @@ int main (int argc, char *argv[])
       exit (1);
     }
   
-  std::chrono::duration<double> elapsedSeconds;;
+  std::chrono::duration<double> elapsedTime;;
   auto start_t = std::chrono::steady_clock::now();
 
   double start, end, finalRes;
@@ -82,18 +88,18 @@ int main (int argc, char *argv[])
   start_t = std::chrono::steady_clock::now();
   finalRes = integrateCPU (start, end, divisions, testf);
 
-  elapsedSeconds = (chrono::steady_clock::now() - start_t)*1000;
+  elapsedTime = (chrono::steady_clock::now() - start_t);
 
   cout << endl << "Answer: " << finalRes << endl;
-  cout << "Execution time on CPU: " <<  elapsedSeconds.count() << " miliseconds\n" << endl;
+  cout << "Execution time on CPU: " <<  elapsedTime.count() << " seconds\n" << endl;
 
   start_t = std::chrono::steady_clock::now();
   finalRes = integrateOpenACC (start, end, divisions, testf);
 
-  elapsedSeconds = (chrono::steady_clock::now() - start_t)*1000;
+  elapsedTime = (chrono::steady_clock::now() - start_t);
 
   cout << endl << "Answer: " << finalRes << endl;
-  cout << "Execution time using OpenACC: " <<  elapsedSeconds.count() << " miliseconds\n" << endl;
+  cout << "Execution time using OpenACC: " <<  elapsedTime.count() << " seconds\n" << endl;
 
   return 0;
 }

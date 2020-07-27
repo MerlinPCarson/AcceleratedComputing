@@ -6,4 +6,4 @@ SOURCE=dotProd.c
 all: 
 	$(PGCC) $(FLAGS) -o $(EXE) $(SOURCE) 
 clean:
-	rm -rf $(EXE) 
+	rm -rf $(EXE)
