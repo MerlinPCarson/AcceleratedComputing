@@ -41,10 +41,10 @@ void fillMatrix(float * matrix, int rows, int cols){
 
 int main(void){
 
-  int Mrows = 4;
-  int Mcols = 4;
+  int Mrows = 9;
+  int Mcols = 7;
   int Nrows = Mcols;
-  int Ncols = 4;
+  int Ncols = 11;
 
   float * M = (float*)malloc(Mrows*Mcols*sizeof(float));
   float * N = (float*)malloc(Mrows*Mcols*sizeof(float));
@@ -61,5 +61,5 @@ int main(void){
   
   matmul(M, N, P, Mrows, Mcols, Nrows, Ncols);
   printf("Matrix M*N: \n");
-  printMatrix(P, Mcols, Nrows);
+  printMatrix(P, Mrows, Ncols);
 }
