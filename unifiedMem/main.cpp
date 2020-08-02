@@ -15,7 +15,7 @@ do {												\
   }												\
  } while(0)					
 
-void matmul(float * M, float * N, float * P, int Mrows, int Mcols, int Nrows, int Ncols ){
+float matmul(float * M, float * N, float * P, int Mrows, int Mcols, int Nrows, int Ncols ){
 
 	cudaEvent_t start, stop;
 	float elapsedTime;
@@ -45,9 +45,7 @@ void matmul(float * M, float * N, float * P, int Mrows, int Mcols, int Nrows, in
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&elapsedTime, start, stop);
 
-  // print process time
-	printf("Time to calculate results on CPU: %f ms.\n", elapsedTime);
-
+  return elapsedTime;
 }
 
 __global__
@@ -66,19 +64,21 @@ void matmulKernel(float * M, float * N, float * P, int Mrows, int Mcols, int Nro
 
 }
 
-void matmulDevice(float * M, float * N, float * P, int Mrows, int Mcols, int Nrows, int Ncols ){
+float matmulDevice(float * M, float * N, float * P, int Mrows, int Mcols, int Nrows, int Ncols, int unified){
 
 	cudaEvent_t start, stop;
 	float elapsedTime;
 
   float * d_M, * d_N, * d_P;
 
-  // alocate memory and move vectors to GPU
-  cudaCheckError(cudaMalloc((void**)&d_M, Mrows*Mcols*sizeof(float)));
-  cudaCheckError(cudaMemcpy(d_M, M, Mrows*Mcols*sizeof(float),  cudaMemcpyHostToDevice));
-  cudaCheckError(cudaMalloc((void**)&d_N, Nrows*Ncols*sizeof(float)));
-  cudaCheckError(cudaMemcpy(d_N, N, Nrows*Ncols*sizeof(float),  cudaMemcpyHostToDevice));
-  cudaCheckError(cudaMalloc((void**)&d_P, Mrows*Ncols*sizeof(float)));
+  if(unified == 0){
+    // alocate memory and move vectors to GPU
+    cudaCheckError(cudaMalloc((void**)&d_M, Mrows*Mcols*sizeof(float)));
+    cudaCheckError(cudaMemcpy(d_M, M, Mrows*Mcols*sizeof(float),  cudaMemcpyHostToDevice));
+    cudaCheckError(cudaMalloc((void**)&d_N, Nrows*Ncols*sizeof(float)));
+    cudaCheckError(cudaMemcpy(d_N, N, Nrows*Ncols*sizeof(float),  cudaMemcpyHostToDevice));
+    cudaCheckError(cudaMalloc((void**)&d_P, Mrows*Ncols*sizeof(float)));
+  }
 
   dim3 gridDim((int)ceil((float)Ncols / BLOCK_WIDTH), (int)ceil((float)Mrows / BLOCK_WIDTH), 1);
   dim3 blockDim(BLOCK_WIDTH, BLOCK_WIDTH, 1);
@@ -88,9 +88,13 @@ void matmulDevice(float * M, float * N, float * P, int Mrows, int Mcols, int Nro
 	cudaEventCreate(&stop);
 	cudaEventRecord(start, 0);
 
-  matmulKernel<<<gridDim, blockDim>>>(d_M, d_N, d_P, Mrows, Mcols, Nrows, Ncols);
-
-  cudaCheckError(cudaMemcpy(P, d_P, Mrows*Ncols*sizeof(float),  cudaMemcpyDeviceToHost));
+  if(unified == 0){
+    matmulKernel<<<gridDim, blockDim>>>(d_M, d_N, d_P, Mrows, Mcols, Nrows, Ncols);
+    cudaCheckError(cudaMemcpy(P, d_P, Mrows*Ncols*sizeof(float),  cudaMemcpyDeviceToHost));
+    cudaFree(d_M); cudaFree(d_N); cudaFree(d_N);
+  } else {
+    matmulKernel<<<gridDim, blockDim>>>(M, N, P, Mrows, Mcols, Nrows, Ncols);
+  }
 
   // end timings
 	cudaEventRecord(stop, 0);     
@@ -101,16 +105,11 @@ void matmulDevice(float * M, float * N, float * P, int Mrows, int Mcols, int Nro
 	cudaEventRecord(stop, 0);     
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&elapsedTime, start, stop);
-
-  // print process time
-	printf("Time to calculate results on GPU: %f ms.\n", elapsedTime);
-
-  // free GPU memory
-  cudaFree(d_M); cudaFree(d_N); cudaFree(d_N);
 
 	cudaEventDestroy(start);
 	cudaEventDestroy(stop);
 
+  return elapsedTime;
 }
 
 void printMatrix(float * matrix, int rows, int cols){
@@ -137,6 +136,11 @@ void fillMatrix(float * matrix, int rows, int cols){
 
 int main(void){
 
+  // use unified memory for GPU kernel?
+  int unified = 0;
+
+  float elapsedTime = 0.0;
+
   int Mrows = 9;
   int Mcols = 7;
   int Nrows = Mcols;
@@ -144,7 +148,6 @@ int main(void){
 
   float * M = (float*)malloc(Mrows*Mcols*sizeof(float));
   float * N = (float*)malloc(Nrows*Ncols*sizeof(float));
-
   float * P = (float*)calloc(Mrows*Ncols, sizeof(float));
 
   fillMatrix(M, Mrows, Mcols);
@@ -154,14 +157,51 @@ int main(void){
   fillMatrix(N, Nrows, Ncols);
   printf("Matrix N: \n");
   printMatrix(N, Nrows, Ncols);
-  
-  matmul(M, N, P, Mrows, Mcols, Nrows, Ncols);
+ 
+// Problem 1a 
+  printf("\nProblem 1a: sequential matrix multiplication\n");
+  elapsedTime = matmul(M, N, P, Mrows, Mcols, Nrows, Ncols);
   printf("Matrix M*N: \n");
   printMatrix(P, Mrows, Ncols);
+	printf("Time to calculate results on CPU: %f ms.\n", elapsedTime);
 
-  matmulDevice(M, N, P, Mrows, Mcols, Nrows, Ncols);
+
+// Problem 1b 
+  printf("\nProblem 1b: matrix multiplication using CUDA\n");
+  elapsedTime = matmulDevice(M, N, P, Mrows, Mcols, Nrows, Ncols, unified);
   printf("Matrix M*N: \n");
   printMatrix(P, Mrows, Ncols);
+	printf("Time to calculate results on GPU: %f ms.\n", elapsedTime);
+
+
+// Problem 1c 
+  printf("\nProblem 1c: matrix multiplication using unified memory\n");
+  // enable use of unified memory
+  unified = 1;
+
+  cudaCheckError(cudaMallocManaged(&M, Mrows*Mcols*sizeof(float)));
+  cudaCheckError(cudaMallocManaged(&N, Nrows*Ncols*sizeof(float)));
+  cudaCheckError(cudaMallocManaged(&P, Mrows*Ncols*sizeof(float)));
+
+  fillMatrix(M, Mrows, Mcols);
+  printf("Matrix M: \n");
+  printMatrix(M, Mrows, Mcols);
+
+  fillMatrix(N, Nrows, Ncols);
+  printf("Matrix N: \n");
+  printMatrix(N, Nrows, Ncols);
+ 
+  printf("\nProblem 1c.1: matrix multiplication using unified memory on CPU\n");
+  elapsedTime = matmul(M, N, P, Mrows, Mcols, Nrows, Ncols);
+  printf("Matrix M*N: \n");
+  printMatrix(P, Mrows, Ncols);
+	printf("Time to calculate results on CPU: %f ms.\n", elapsedTime);
+
+  printf("\nProblem 1c.2: matrix multiplication using unified memory on GPU\n");
+  elapsedTime = matmulDevice(M, N, P, Mrows, Mcols, Nrows, Ncols, unified);
+  printf("Matrix M*N: \n");
+  printMatrix(P, Mrows, Ncols);
+	printf("Time to calculate results on GPU: %f ms.\n", elapsedTime);
 
   return 0;
 }
