@@ -5,10 +5,6 @@
 
 
 #define BLOCK_WIDTH (32)
-#define MROWS (4)
-#define MCOLS (6)
-#define NROWS (MCOLS)
-#define NCOLS (5)
 #define MAXVAL (5)
 
 // Macro for checking for cuda errors
@@ -150,12 +146,12 @@ bool isNumeric(char * str){
 }
 
 void printUsage(){
-  printf("Usage: ./matmul <M rows> <M cols> <N rows> N cols>\n");
+  printf("Usage: ./matmul <M rows> <M cols> <N rows> N cols> <optional: 0 (to disable prining matrixes)>\n");
 }
 
-void loadArgs(int argc, char ** argv, int * Mrows, int * Mcols, int * Nrows, int * Ncols){
+void loadArgs(int argc, char ** argv, int * Mrows, int * Mcols, int * Nrows, int * Ncols, int * verbose){
 
-  if(argc == 5){
+  if(argc >= 5){
     if(isNumeric(argv[1]) && isNumeric(argv[2]) && isNumeric(argv[3]) && isNumeric(argv[4])){
         *Mrows = atoi(argv[1]);
         *Mcols = atoi(argv[2]);
@@ -164,6 +160,10 @@ void loadArgs(int argc, char ** argv, int * Mrows, int * Mcols, int * Nrows, int
 
         // inner dimensions must match
         assert(*Mcols == *Nrows);
+
+        if(argc == 6){
+          *verbose = atoi(argv[5]);
+        }
 
         return;
     } else{
@@ -188,33 +188,43 @@ int main(int argc, char ** argv){
   int Nrows;
   int Ncols;
 
-  loadArgs(argc, argv, &Mrows, &Mcols, &Nrows, &Ncols);
+  int verbose = 1;
+
+  loadArgs(argc, argv, &Mrows, &Mcols, &Nrows, &Ncols, &verbose);
 
   float * M = (float*)malloc(Mrows*Mcols*sizeof(float));
   float * N = (float*)malloc(Nrows*Ncols*sizeof(float));
   float * P = (float*)calloc(Mrows*Ncols, sizeof(float));
 
   fillMatrix(M, Mrows, Mcols);
-  printf("Matrix M: \n");
-  printMatrix(M, Mrows, Mcols);
+  if(verbose){
+    printf("Matrix M: \n");
+    printMatrix(M, Mrows, Mcols);
+  }
 
   fillMatrix(N, Nrows, Ncols);
-  printf("Matrix N: \n");
-  printMatrix(N, Nrows, Ncols);
+  if(verbose){
+    printf("Matrix N: \n");
+    printMatrix(N, Nrows, Ncols);
+  }
  
 // Problem 1a 
   printf("\nProblem 1a: sequential matrix multiplication\n");
   elapsedTime = matmul(M, N, P, Mrows, Mcols, Nrows, Ncols);
-  printf("Matrix M*N: \n");
-  printMatrix(P, Mrows, Ncols);
+  if(verbose){
+    printf("Matrix M*N: \n");
+    printMatrix(P, Mrows, Ncols);
+  }
 	printf("Time to calculate results on CPU: %f ms.\n", elapsedTime);
 
 
 // Problem 1b 
   printf("\nProblem 1b: matrix multiplication using CUDA\n");
   elapsedTime = matmulDevice(M, N, P, Mrows, Mcols, Nrows, Ncols, unified);
-  printf("Matrix M*N: \n");
-  printMatrix(P, Mrows, Ncols);
+  if(verbose){
+    printf("Matrix M*N: \n");
+    printMatrix(P, Mrows, Ncols);
+  }
 	printf("Time to calculate results on GPU: %f ms.\n", elapsedTime);
 
 
@@ -228,23 +238,31 @@ int main(int argc, char ** argv){
   cudaCheckError(cudaMallocManaged(&P, Mrows*Ncols*sizeof(float)));
 
   fillMatrix(M, Mrows, Mcols);
-  printf("Matrix M: \n");
-  printMatrix(M, Mrows, Mcols);
+  if(verbose){
+    printf("Matrix M: \n");
+    printMatrix(M, Mrows, Mcols);
+  }
 
   fillMatrix(N, Nrows, Ncols);
-  printf("Matrix N: \n");
-  printMatrix(N, Nrows, Ncols);
+  if(verbose){
+    printf("Matrix N: \n");
+    printMatrix(N, Nrows, Ncols);
+  }
  
   printf("\nProblem 1c.1: matrix multiplication using unified memory on CPU\n");
   elapsedTime = matmul(M, N, P, Mrows, Mcols, Nrows, Ncols);
-  printf("Matrix M*N: \n");
-  printMatrix(P, Mrows, Ncols);
+  if(verbose){
+    printf("Matrix M*N: \n");
+    printMatrix(P, Mrows, Ncols);
+  }
 	printf("Time to calculate results on CPU: %f ms.\n", elapsedTime);
 
   printf("\nProblem 1c.2: matrix multiplication using unified memory on GPU\n");
   elapsedTime = matmulDevice(M, N, P, Mrows, Mcols, Nrows, Ncols, unified);
-  printf("Matrix M*N: \n");
-  printMatrix(P, Mrows, Ncols);
+  if(verbose){
+    printf("Matrix M*N: \n");
+    printMatrix(P, Mrows, Ncols);
+  }
 	printf("Time to calculate results on GPU: %f ms.\n", elapsedTime);
 
   return 0;
