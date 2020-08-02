@@ -1,9 +1,15 @@
 #include <stdlib.h>
 #include <random>
+#include <assert.h>
 #include <cuda.h>
 
 
 #define BLOCK_WIDTH (32)
+#define MROWS (4)
+#define MCOLS (6)
+#define NROWS (MCOLS)
+#define NCOLS (5)
+#define MAXVAL (5)
 
 // Macro for checking for cuda errors
 #define cudaCheckError(status) 									\
@@ -14,6 +20,7 @@ do {												\
     exit(EXIT_FAILURE);										\
   }												\
  } while(0)					
+
 
 float matmul(float * M, float * N, float * P, int Mrows, int Mcols, int Nrows, int Ncols ){
 
@@ -116,7 +123,7 @@ void printMatrix(float * matrix, int rows, int cols){
 
   for(int i = 0; i < rows; ++i){
     for(int j = 0; j < cols; ++j){
-      printf("%f ", matrix[i*cols+j]);
+      printf("%.0f ", matrix[i*cols+j]);
     }
     printf("\n");
   }
@@ -124,27 +131,64 @@ void printMatrix(float * matrix, int rows, int cols){
 }
 
 void fillMatrix(float * matrix, int rows, int cols){
-  int maxVal = 4;
 
   for(int i = 0; i < rows; ++i){
     for(int j = 0; j < cols; ++j){
-      matrix[i*cols+j] = rand() % maxVal;
+      matrix[i*cols+j] = rand() % MAXVAL;
     }
   }
 
 }
 
-int main(void){
+bool isNumeric(char * str){
+  int len = strlen(str);
+  for(int i=0; i<len; ++i){
+    if(!isdigit(str[i]))
+        return false;
+  }
+  return true;
+}
+
+void printUsage(){
+  printf("Usage: ./matmul <M rows> <M cols> <N rows> N cols>\n");
+}
+
+void loadArgs(int argc, char ** argv, int * Mrows, int * Mcols, int * Nrows, int * Ncols){
+
+  if(argc == 5){
+    if(isNumeric(argv[1]) && isNumeric(argv[2]) && isNumeric(argv[3]) && isNumeric(argv[4])){
+        *Mrows = atoi(argv[1]);
+        *Mcols = atoi(argv[2]);
+        *Nrows = atoi(argv[3]);
+        *Ncols = atoi(argv[4]);
+
+        // inner dimensions must match
+        assert(*Mcols == *Nrows);
+
+        return;
+    } else{
+      printf("One of the arguments was non-numeric\n");
+    }
+  }
+
+  printUsage();
+
+  exit(1);
+}
+
+int main(int argc, char ** argv){
 
   // use unified memory for GPU kernel?
   int unified = 0;
 
   float elapsedTime = 0.0;
 
-  int Mrows = 9;
-  int Mcols = 7;
-  int Nrows = Mcols;
-  int Ncols = 11;
+  int Mrows;
+  int Mcols;
+  int Nrows;
+  int Ncols;
+
+  loadArgs(argc, argv, &Mrows, &Mcols, &Nrows, &Ncols);
 
   float * M = (float*)malloc(Mrows*Mcols*sizeof(float));
   float * N = (float*)malloc(Nrows*Ncols*sizeof(float));
