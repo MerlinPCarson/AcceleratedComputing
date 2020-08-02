@@ -263,5 +263,7 @@ int main(int argc, char ** argv){
   }
 	printf("Time to calculate results on GPU: %f ms.\n", elapsedTime);
 
+  cudaFree(M); cudaFree(N); cudaFree(P);
+
   return 0;
 }
