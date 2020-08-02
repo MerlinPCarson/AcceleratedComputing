@@ -94,9 +94,9 @@ float matmulDevice(float * M, float * N, float * P, int Mrows, int Mcols, int Nr
   if(unified == 0){
     matmulKernel<<<gridDim, blockDim>>>(d_M, d_N, d_P, Mrows, Mcols, Nrows, Ncols);
     cudaCheckError(cudaMemcpy(P, d_P, Mrows*Ncols*sizeof(float),  cudaMemcpyDeviceToHost));
-    cudaFree(d_M); cudaFree(d_N); cudaFree(d_N);
   } else {
     matmulKernel<<<gridDim, blockDim>>>(M, N, P, Mrows, Mcols, Nrows, Ncols);
+    cudaDeviceSynchronize();
   }
 
   // end timings
@@ -104,11 +104,9 @@ float matmulDevice(float * M, float * N, float * P, int Mrows, int Mcols, int Nr
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&elapsedTime, start, stop);
 
-  // end timings
-	cudaEventRecord(stop, 0);     
-	cudaEventSynchronize(stop);
-	cudaEventElapsedTime(&elapsedTime, start, stop);
-
+  if(unified == 0){
+    cudaFree(d_M); cudaFree(d_N); cudaFree(d_N);
+  }
 	cudaEventDestroy(start);
 	cudaEventDestroy(stop);
 
