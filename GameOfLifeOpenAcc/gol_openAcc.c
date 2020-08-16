@@ -6,17 +6,19 @@
 #define WIDTH 60
 #define HEIGHT 40
 
-
+// used to find boundry of a board spot
 const int offsets[8][2] = {{-1, 1},{0, 1},{1, 1},
     {-1, 0},       {1, 0},
     {-1,-1},{0,-1},{1,-1}};
 
+// randomly fills board
 void fill_board(int * restrict board, int width, int height) {
     int i;
     for (i=0; i<width*height; i++)
         board[i] = rand() % 2;
 }
 
+// prints state of the board
 void print_board(int * restrict board) {
     int x, y;
     for (y=0; y<HEIGHT; y++) {
@@ -29,7 +31,7 @@ void print_board(int * restrict board) {
     printf("-----\n");
 }
 
-
+// calculates the next iteration of the board
 float step(int * restrict current, int * restrict next, int width, int height) {
     // coordinates of the cell we're currently evaluating
     int x, y;
@@ -39,18 +41,19 @@ float step(int * restrict current, int * restrict next, int width, int height) {
     // write the next board state
     int board_len = width * height;
 
-  // timing vars
-  clock_t start = clock();
-  //float totalTime = 0.0;
-
+    // timing vars
+    float totalTime = 0.0;
+    clock_t start = 0.0;
 #pragma acc data copyin(current[0:board_len], offsets[0:8]) copyout(next[0:board_len])
-#pragma acc parallel loops
+{
+    start = clock();
+    #pragma acc parallel loops
     for (y=0; y<height; y++) {
         for (x=0; x<width; x++) {
 
             // count this cell's alive neighbors
             num_neighbors = 0;
-#pragma acc loops reduction(+:num_neighbors) 
+            #pragma acc loops reduction(+:num_neighbors) 
             for (i=0; i<8; i++) {
                 // To make the board torroidal, we use modular arithmetic to
                 // wrap neighbor coordinates around to the other side of the
@@ -71,12 +74,15 @@ float step(int * restrict current, int * restrict next, int width, int height) {
         }
     }
 
-  return ((float)(clock() - start)*1000)/CLOCKS_PER_SEC;
+    totalTime = ((float)(clock() - start)*1000)/CLOCKS_PER_SEC;
+  }
+  return totalTime;
 }
 
 int main(int argc, const char *argv[]) {
 
-    int on_gpu = 0;
+    // seed the random generator so each experiement is fair
+    srand(42);
 
     // parse the width and height command line arguments, if provided
     int width, height, iters, out;
@@ -103,12 +109,14 @@ int main(int argc, const char *argv[]) {
     size_t board_size = sizeof(int) * width * height;
     current = (int *) malloc(board_size); // same as: int current[width * height];
     next = (int *) malloc(board_size);    // same as: int next[width *height];
- 
 
     // Initialize the global "current".
     fill_board(current, width, height);
 
+    // timing vars
     float totalTime = 0.0;
+    float totalTimeEn = 0.0;
+    clock_t start = clock();
 
     while (many<iters) {
         many++;
@@ -116,7 +124,7 @@ int main(int argc, const char *argv[]) {
             print_board(current);
 
         //evaluate the `current` board, writing the next generation into `next`.
-        totalTime += step(current, next, width, height);
+        totalTimeEn += step(current, next, width, height);
         // Copy the next state, that step() just wrote into, to current state
         memcpy(current, next, board_size);
 
@@ -126,8 +134,11 @@ int main(int argc, const char *argv[]) {
         if (out==1)
             nanosleep(&delay, &remaining);
     }
+
+    totalTime = ((float)(clock() - start)*1000)/CLOCKS_PER_SEC;
     
-    printf("average of execution time of total process is %f\n", totalTime/iters);
+    printf("average of execution time of enhanced section %f ms\n", totalTimeEn/iters);
+    printf("average of execution time of total process is %f ms\n", totalTime/iters);
 
     return 0;
 }
