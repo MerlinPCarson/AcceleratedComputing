@@ -2,7 +2,6 @@
  * When CUDA-fied, compile with `nvcc life.cu`
  */
 
-//#include <cuda.h>
 #include <stdlib.h> // for rand
 #include <string.h> // for memcpy
 #include <stdio.h> // for printf
@@ -33,7 +32,6 @@ void print_board(int *board) {
     }
     printf("-----\n");
 }
-
 
 void step(int *current, int *next, int width, int height) {
     // coordinates of the cell we're currently evaluating
@@ -71,6 +69,7 @@ void step(int *current, int *next, int width, int height) {
 }
 
 int main(int argc, const char *argv[]) {
+
     // parse the width and height command line arguments, if provided
     int width, height, iters, out;
     if (argc < 3) {
@@ -96,30 +95,39 @@ int main(int argc, const char *argv[]) {
     size_t board_size = sizeof(int) * width * height;
     current = (int *) malloc(board_size); // same as: int current[width * height];
     next = (int *) malloc(board_size);    // same as: int next[width *height];
- 
+
+    clock_t start = 0.0; 
+    float totalTime = 0.0;
+
+    clock_t startEn = 0.0; 
+    float totalTimeEn = 0.0;
 
     // Initialize the global "current".
     fill_board(current, width, height);
 
-
+    start = clock();
     while (many<iters) {
         many++;
         if (out==1)
             print_board(current);
 
         //evaluate the `current` board, writing the next generation into `next`.
+        startEn = clock();
         step(current, next, width, height);
+        totalTimeEn += ((float)(clock() - startEn)*1000)/CLOCKS_PER_SEC;
+
         // Copy the next state, that step() just wrote into, to current state
         memcpy(current, next, board_size);
-
-        // copy the `next` to CPU and into `current` to be ready to repeat the process
-
 
         // We sleep only because textual output is slow and the console needs
         // time to catch up. We don't sleep in the graphical X11 version.
         if (out==1)
             nanosleep(&delay, &remaining);
     }
+    totalTime = ((float)(clock() - start)*1000)/CLOCKS_PER_SEC;
+
+    printf("Total average process time per iteration: %f\n", totalTime/iters);
+    printf("Total average process time enhanced per iteration: %f\n", totalTimeEn/iters);
 
     return 0;
 }
